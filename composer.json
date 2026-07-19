@@ -1,0 +1,11 @@
+{
+    "name": "vijaymahes/human-skill-digital-twin",
+    "description": "Human Skill Digital Twin",
+    "authors": [
+        {
+            "name": "Vijay Mahes",
+            "email": "Vijaypradhap2004@gmail.com"
+        }
+    ],
+    "require": {}
+}
