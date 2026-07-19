@@ -129,16 +129,28 @@ export default function App() {
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options.headers,
     };
-    const res = await fetch(`/api/v1${endpoint}`, { ...options, headers });
-    if (res.status === 401) {
-      handleLogout();
-      throw new Error("Session expired.");
+    
+    const isStaticDeploy = window.location.hostname.includes("github.io");
+    if (isStaticDeploy) {
+      console.info("Static GitHub Pages deployment detected. Serving fallback mocks.");
+      return getMockFallbackData(endpoint, options);
     }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "API Error" }));
-      throw new Error(err.detail || "API Error");
+
+    try {
+      const res = await fetch(`/api/v1${endpoint}`, { ...options, headers });
+      if (res.status === 401) {
+        handleLogout();
+        throw new Error("Session expired.");
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "API Error" }));
+        throw new Error(err.detail || "API Error");
+      }
+      return await res.json();
+    } catch (error) {
+      console.warn("Fetch failed, activating offline/static mock fallback for:", endpoint);
+      return getMockFallbackData(endpoint, options);
     }
-    return res.json();
   };
 
   const handleLogout = () => {
@@ -1814,4 +1826,361 @@ function ArenaRadarChart({ metrics }: { metrics: Record<string, number> }) {
       })}
     </svg>
   );
+}
+
+const MOCK_SCENARIOS = [
+  {
+    "id": "production_outage",
+    "title": "The Production Outage Panic",
+    "description": "A business-critical payment processing API is dropping 45% of customer transactions. Alerts are firing. You need to triage and resolve the issue under intense time pressure without causing data corruption.",
+    "steps": [
+      {
+        "step_id": 1,
+        "situation": "Multiple customer payment requests are failing with HTTP 500 errors. The support channel is flooded. What is your first step?",
+        "clues": [
+          {"id": "logs", "title": "Inspect Microservice Logs", "content": "Database connection pool saturated with 150 pending transactions waiting for database locks."},
+          {"id": "infra", "title": "Check Infrastructure Status", "content": "CPU usage is 18%, memory is 42% (perfectly normal)."},
+          {"id": "git", "title": "Check Git Deployment History", "content": "A deployment happened 15 minutes ago by another dev, altering default database pool timeouts from 30s to 5s."}
+        ],
+        "options": [
+          {"id": "A", "text": "Reboot all API containers immediately to clear connection pool memory state.", "risk_level": "medium", "feedback": "Containers rebooted, but database connection pool saturated again within 30 seconds. Outage continues."},
+          {"id": "B", "text": "Roll back the git deployment immediately.", "risk_level": "high", "feedback": "Deployment rolled back, but database sessions are still locked by orphaned connection threads. Outage persists."},
+          {"id": "C", "text": "Analyze active database connections to identify lock origins.", "risk_level": "low", "feedback": "You find a long-running migrator transaction holding an exclusive lock on the 'transactions' table."}
+        ]
+      },
+      {
+        "step_id": 2,
+        "situation": "You've identified that a background data-migration job (running on a backup thread) is holding a lock on the 'transactions' table. The migration has been running for 4.2 hours and is 90% complete. What do you do?",
+        "clues": [
+          {"id": "migration_code", "title": "Inspect Migration Script", "content": "The script runs within a single large transaction block. Terminating it forcefully will trigger a rollback that may take up to an hour."},
+          {"id": "traffic", "title": "Analyze Live Traffic Patterns", "content": "90% of failures are retries. Rate-limiting incoming retries would alleviate server overload."}
+        ],
+        "options": [
+          {"id": "A", "text": "Kill the PostgreSQL process ID (PID) of the migration job immediately.", "risk_level": "high", "feedback": "Process terminated. Postgres starts rolling back the uncommitted transaction. Database remains locked and unresponsive."},
+          {"id": "B", "text": "Enable temporary API rate-limiting and wait for the migration to finish gracefully (estimated 15 minutes).", "risk_level": "low", "feedback": "Temporary rate-limits reduce database load. 12 minutes later, the migration completes, locks release, and traffic flows normally."},
+          {"id": "C", "text": "Pause the database server and perform an emergency database scaling operation.", "risk_level": "high", "feedback": "Database restarted and instance size scaled up. However, upon boot, Postgres still enters crash recovery to roll back the migrator task, keeping locks held."}
+        ]
+      },
+      {
+        "step_id": 3,
+        "situation": "With the database locks finally released and transactions flowing again, how do you prevent this issue in the post-mortem phase?",
+        "clues": [
+          {"id": "db_config", "title": "Inspect DB Locks Configuration", "content": "Postgres default lock wait timeout is unlimited, meaning a migrator will block all read/write clients forever if it gets stuck."},
+          {"id": "docs", "title": "Review Engineering Playbook", "content": "Playbook suggests always wrapping schema migrations in dry-run checks and locking timeouts."}
+        ],
+        "options": [
+          {"id": "A", "text": "Deploy a quick patch to set lock_timeout = 10000 (10s) globally on the database.", "risk_level": "medium", "feedback": "Patch deployed. Fast and dirty, but setting global database timeouts might break valid long-running analytical queries later."},
+          {"id": "B", "text": "Establish a policy: all schema migrations must run in tiny batched transactions with dedicated statement timeouts.", "risk_level": "low", "feedback": "Perfect. Migrations are now decoupled and non-blocking, ensuring safe and resilient continuous delivery."},
+          {"id": "C", "text": "Upgrade the database replica count and blame the cloud provider's network delay in the incident report.", "risk_level": "low", "feedback": "Incident report closed, but core locking issue is unaddressed. High likelihood of recurrence."}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "legacy_refactoring",
+    "title": "The Legacy Refactoring Trap",
+    "description": "Your core subscription billing engine is 8 years old, written in procedural PHP. Your team has spent 9 months refactoring it to a microservices architecture. It has blown past its budget, is still buggy, and is delaying crucial new features.",
+    "steps": [
+      {
+        "step_id": 1,
+        "situation": "The business demands that you ship 'Enterprise Custom Tiers' in 4 weeks. Your refactored billing service is only 75% complete and is failing edge-case tax audits. The team is exhausted. What do you do?",
+        "clues": [
+          {"id": "budget", "title": "Check Budget Spent", "content": "95% of the refactoring budget has been exhausted. Sunk cost is $120,000."},
+          {"id": "diff", "title": "Examine Code Complexity", "content": "The legacy billing file is 14,000 lines long, but handles custom enterprise tiers using simple database column overrides."}
+        ],
+        "options": [
+          {"id": "A", "text": "Double down: pause all new feature requests and commit 100% team bandwidth to complete the refactored billing microservice.", "risk_level": "high", "feedback": "You commit more resources, but the complexity of edge-case tax calculations continues to push back completion. The business misses the custom tiers deadline."},
+          {"id": "B", "text": "Implement the 'Enterprise Custom Tiers' inside the legacy engine directly as a fast patch, while keeping the refactor on a low-priority background thread.", "risk_level": "low", "feedback": "Feature shipped on time using legacy overrides. Business objectives met, and team gets breathing room to properly solve the refactoring challenges."},
+          {"id": "C", "text": "Hire an external agency to write the remaining 25% of the refactored microservice.", "risk_level": "medium", "feedback": "Agency onboarded. They take 3 weeks just to understand the architecture, exceeding budget, and deliver code that still fails tax checks."}
+        ]
+      },
+      {
+        "step_id": 2,
+        "situation": "A junior engineer suggests scrapping the refactored billing service altogether and using a third-party billing platform (e.g. Stripe Billing) to handle all custom and standard tiers, which would replace 90% of local code.",
+        "clues": [
+          {"id": "cost", "title": "Review Third-Party Fees", "content": "Stripe charges 0.5% per invoice. Your current transaction volume means transaction fees will cost $4,000/month, but saves 1 full-time dev salary ($10,000/month)."},
+          {"id": "migration", "title": "Examine Migration Effort", "content": "Integrating Stripe Billing takes 3 weeks of API work and supports all tax edge-cases automatically."}
+        ],
+        "options": [
+          {"id": "A", "text": "Reject third-party tools. 'We spent 9 months building our custom system, we should not throw away our hard work.'", "risk_level": "medium", "feedback": "Refuse to migrate. The custom billing engine drags on, consuming developer maintenance hours indefinitely."},
+          {"id": "B", "text": "Initiate a migration to Stripe Billing, writing off the 9-month refactor as a learning experience.", "risk_level": "low", "feedback": "Migration successfully completed in 3 weeks. Developer workload drops, allowing focus on core product features."},
+          {"id": "C", "text": "Build a wrapper that tries to sync the half-finished custom microservice with Stripe Billing in parallel.", "risk_level": "high", "feedback": "Sync complexity leads to double-billing bugs and severe customer complaints. High risk realized."}
+        ]
+      },
+      {
+        "step_id": 3,
+        "situation": "After resolving the refactoring dilemma, you need to set up a legacy refactoring decision framework. How do you assess future 're-write' proposals?",
+        "clues": [
+          {"id": "industry", "title": "Check Refactoring Standards", "content": "Industry data shows 70% of complete system rewrites exceed time estimations by over 100%."}
+        ],
+        "options": [
+          {"id": "A", "text": "Mandate that no rewrites are allowed. All legacy systems must be patched forever.", "risk_level": "low", "feedback": "Technical debt accumulates until the application becomes completely unmaintainable years later."},
+          {"id": "B", "text": "Implement a Strangler Fig Application Pattern rule: all rewrites must be done incrementally, feature by feature, behind a routing proxy.", "risk_level": "low", "feedback": "Excellent policy. Promotes iterative, low-risk modular modernization."},
+          {"id": "C", "text": "Approve rewrites based on developer excitement and stack modernization desires.", "risk_level": "high", "feedback": "Leading to constant churn of half-finished frameworks and unstable architectures."}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "architecture_choice",
+    "title": "The Hype-Driven Architecture Dilemma",
+    "description": "A new decentralized serverless database technology is trending. It promises 10x write performance. The development team is highly eager to adopt it for a standard relational Customer Relationship Management (CRM) project.",
+    "steps": [
+      {
+        "step_id": 1,
+        "situation": "The CRM project requires standard complex relational queries (e.g. joins, nested filters, transactional safety). The team wants to use the new serverless DB. What is your evaluation strategy?",
+        "clues": [
+          {"id": "spec", "title": "Check Database Spec", "content": "The database is non-relational, lacks transactional ACID guarantees, and doesn't support joins natively."},
+          {"id": "community", "title": "Evaluate Ecosystem Activity", "content": "The database has only 1.2k stars on GitHub and has zero production case-studies outside of developer blogs."}
+        ],
+        "options": [
+          {"id": "A", "text": "Adopt the serverless database to make the stack modern and attract talent.", "risk_level": "high", "feedback": "Database adopted. The team struggles to implement relational joins in application code, dragging down performance and velocity."},
+          {"id": "B", "text": "Stick with PostgreSQL. Relational databases are a proven fit for CRM workloads.", "risk_level": "low", "feedback": "PostgreSQL adopted. Joins and queries are executed in microseconds with solid transactional integrity."},
+          {"id": "C", "text": "Run a 2-day hackathon benchmark comparing PostgreSQL with the new database on CRM query shapes.", "risk_level": "low", "feedback": "Benchmark reveals that while writes are fast, complex reads are 25x slower due to manual application joins. The team agrees to stick with SQL."}
+        ]
+      },
+      {
+        "step_id": 2,
+        "situation": "Your choice of PostgreSQL is finalized, but the team now wants to implement a highly complex microservices architecture (splitting CRM into 12 services) with Kubernetes orchestration, for a system expected to serve 500 active users.",
+        "clues": [
+          {"id": "ops", "title": "Analyze Ops Overhead", "content": "Managing Kubernetes for a small user base consumes 40% of operations capacity. A single monolithic backend takes 5% of ops capacity."},
+          {"id": "perf_scale", "title": "Check Load Projections", "content": "500 active users will produce peak load of 10 requests per second, which a single virtual machine ($10/month) can handle at 5% CPU."}
+        ],
+        "options": [
+          {"id": "A", "text": "Approve Kubernetes microservices. 'We must build for scale from day one.'", "risk_level": "high", "feedback": "System is highly complex. Developers spend more time fixing Kubernetes network configurations than shipping product features."},
+          {"id": "B", "text": "Build a modular monolith and host it on a single Docker-compose virtual machine with automated backups.", "risk_level": "low", "feedback": "System is simple, robust, and fast. Operational overhead is virtually zero, allowing developers to ship features daily."},
+          {"id": "C", "text": "Adopt serverless functions (lambda) for every single API endpoint.", "risk_level": "medium", "feedback": "Lambda functions suffer from cold starts and database connection saturation due to lack of a shared pool, causing random lag spikes."}
+        ]
+      },
+      {
+        "step_id": 3,
+        "situation": "Months later, the project is a success. The team wants to incorporate machine learning (LLM-based lead scoring). How do you integrate it?",
+        "clues": [
+          {"id": "ml_needs", "title": "Evaluate ML Requirements", "content": "A simple heuristic scoring system (assigning points based on job title/company size) works in 95% of cases. Training an LLM classifier costs $15,000 in GPU time."}
+        ],
+        "options": [
+          {"id": "A", "text": "Deploy a local PyTorch neural network lead classifier.", "risk_level": "medium", "feedback": "Neural network works, but requires continuous fine-tuning and debugging, creating support overhead."},
+          {"id": "B", "text": "Start with a simple relational database SQL query scoring heuristic, and only build ML models if data shows the heuristic is failing.", "risk_level": "low", "feedback": "The heuristic works perfectly, takes 2 hours to code, costs zero dollars, and is instantly transparent to business analysts."},
+          {"id": "C", "text": "Integrate a paid third-party enterprise AI CRM platform API.", "risk_level": "low", "feedback": "API works but adds monthly subscription fees, reducing margins for a feature that could be solved locally."}
+        ]
+      }
+    ]
+  }
+];
+
+function getMockFallbackData(endpoint: string, options: any) {
+  const e = endpoint.toLowerCase();
+  
+  if (e.includes("/auth/login")) {
+    return { "access_token": "mock_static_demo_token" };
+  }
+  if (e.includes("/auth/register")) {
+    return { "status": "success" };
+  }
+  
+  if (e.includes("/twin")) {
+    return {
+      "id": 1,
+      "user_id": 1,
+      "updated_at": "2026-07-19T10:00:00Z",
+      "state": {
+        "learning_dna": {
+          "visual": {"score": 0.72, "confidence": 0.85},
+          "reading": {"score": 0.45, "confidence": 0.7},
+          "project": {"score": 0.88, "confidence": 0.9},
+          "discussion": {"score": 0.6, "confidence": 0.8}
+        },
+        "memory_profile": {
+          "overall_retention": 0.84,
+          "recall_speed_score": 0.78,
+          "average_decay_rate": 0.042,
+          "revision_delay_adherence": 0.88
+        },
+        "skills": {
+          "programming": {"level": 0.85, "confidence": 0.9},
+          "problem_solving": {"level": 0.8, "confidence": 0.85},
+          "system_design": {"level": 0.7, "confidence": 0.8},
+          "data_structures": {"level": 0.75, "confidence": 0.85}
+        },
+        "habits": {
+          "study_streak": 5,
+          "total_focus_hours": 42.5,
+          "revision_delay_adherence": 0.88
+        },
+        "decision_profile": {
+          "risk_tolerance": 0.5,
+          "analytical_thinking": 0.75,
+          "intuition": 0.5,
+          "evidence_collection_speed": 0.5,
+          "decision_speed": 0.65,
+          "bias_index": 0.15,
+          "consistency": 0.8,
+          "tradeoff_handling": 0.5,
+          "decision_confidence": 0.8
+        }
+      }
+    };
+  }
+  
+  if (e.includes("/learning/plan")) {
+    return {
+      "style_fit_explanation": "Based on your high project and visual preferences, we suggest hands-on execution and graphical walkthroughs.",
+      "daily_plan": [
+        {
+          "type": "practice",
+          "duration_est": "30 mins",
+          "title": "Implement Neural Network Forward Pass",
+          "description": "Code a clean forward propagation loop from scratch using raw numpy arrays."
+        },
+        {
+          "type": "revision",
+          "duration_est": "15 mins",
+          "title": "Recall Backpropagation Gradient Flow",
+          "description": "Quick check on gradient flow bottlenecks and vanishing gradient nodes."
+        }
+      ]
+    };
+  }
+  
+  if (e.includes("/predictions")) {
+    return {
+      "burnout_risk": 0.12,
+      "velocity_score": 0.85,
+      "forgetting_rate_monthly": 0.08,
+      "predicted_concepts_to_forget": ["backpropagation", "learning_rates"],
+      "readiness_career": {"AI Engineer": 0.75, "Data Scientist": 0.65},
+      "explanations": {}
+    };
+  }
+  
+  if (e.includes("/knowledge/graph")) {
+    return {
+      "nodes": [
+        {"id": "python_basics", "data": {"title": "Python Basics", "mastery": 0.95, "status": "mastered", "difficulty": 1.0}, "position": {"x": 150, "y": 100}},
+        {"id": "numpy_arrays", "data": {"title": "NumPy Arrays", "mastery": 0.85, "status": "mastered", "difficulty": 2.0}, "position": {"x": 300, "y": 100}},
+        {"id": "calculus", "data": {"title": "Calculus Foundations", "mastery": 0.7, "status": "in_progress", "difficulty": 3.0}, "position": {"x": 200, "y": 250}},
+        {"id": "neural_networks", "data": {"title": "Neural Networks", "mastery": 0.4, "status": "in_progress", "difficulty": 4.0}, "position": {"x": 500, "y": 200}}
+      ],
+      "edges": [
+        {"id": "e1", "source": "python_basics", "target": "numpy_arrays"},
+        {"id": "e2", "source": "numpy_arrays", "target": "neural_networks"},
+        {"id": "e3", "source": "calculus", "target": "neural_networks"}
+      ]
+    };
+  }
+  
+  if (e.includes("/knowledge/gaps")) {
+    return [
+      {"concept_id": "calculus", "title": "Calculus Foundations", "reason": "Low mastery (70%) inhibits partial derivatives calculations."}
+    ];
+  }
+  
+  if (e.includes("/knowledge/path")) {
+    return [
+      {"title": "Python Basics", "mastery": 0.95, "status": "mastered"},
+      {"title": "NumPy Arrays", "mastery": 0.85, "status": "mastered"},
+      {"title": "Calculus Foundations", "mastery": 0.7, "status": "in_progress"},
+      {"title": "Neural Networks", "mastery": 0.4, "status": "in_progress"}
+    ];
+  }
+  
+  if (e.includes("/decisions")) {
+    return [
+      {
+        "id": 1,
+        "title": "AWS Lambda vs ECS for serving microservice",
+        "choice_made": "AWS ECS Container",
+        "risk_level": "medium",
+        "evidence_collected": ["Step 1 Option A", "Step 2 Option B"],
+        "bias_detected": {},
+        "decision_speed_seconds": 12.5,
+        "confidence": 0.8,
+        "created_at": "2026-07-19T09:00:00Z"
+      }
+    ];
+  }
+  
+  if (e.includes("/reflections")) {
+    return [
+      {
+        "id": 1,
+        "reflection_type": "weekly",
+        "content": "Focus has been consistent on machine learning. Recommend revising calculus foundations to unlock neural networks.",
+        "reflection_date": "2026-07-19T08:00:00Z",
+        "digital_twin_snapshot": {}
+      }
+    ];
+  }
+  
+  if (e.includes("/arena/scenarios")) {
+    return MOCK_SCENARIOS;
+  }
+  
+  if (e.includes("/arena/submit")) {
+    const body = JSON.parse(options.body || "{}");
+    const steps = body.steps || [];
+    let analyticalSum = 0;
+    let impulsivenessSum = 0;
+    let confidenceSum = 0;
+    let cluesCount = 0;
+    
+    steps.forEach((s: any) => {
+      confidenceSum += s.confidence;
+      cluesCount += s.evidence_collected.length;
+      if (s.option_selected === 'A') {
+        impulsivenessSum += 0.8;
+        analyticalSum += 0.3;
+      } else if (s.option_selected === 'B') {
+        analyticalSum += 0.5;
+      } else {
+        analyticalSum += 0.9;
+      }
+    });
+    
+    const avgConfidence = confidenceSum / (steps.length || 1);
+    const avgAnalytical = analyticalSum / (steps.length || 1);
+    const avgImpulsive = impulsivenessSum / (steps.length || 1);
+    const avgOverconfidence = avgConfidence * (1.0 - (cluesCount / 6.0));
+    const score = (avgAnalytical + (1.0 - avgImpulsive) + (1.0 - avgOverconfidence)) / 3.0;
+
+    return {
+      score: score,
+      feedback: "Complete! You achieved a decision score of " + Math.round(score * 100) + "% on our static simulator client.",
+      metrics: {
+        analytical_thinking: avgAnalytical,
+        risk_tolerance: 0.4,
+        impulsiveness: avgImpulsive,
+        sunk_cost: 0.3,
+        confirmation_bias: 0.2,
+        overconfidence: avgOverconfidence
+      },
+      biases_detected: avgOverconfidence > 0.5 ? {
+        overconfidence: { severity: avgOverconfidence, description: "Demo bias flag: High confidence with minimal clues." }
+      } : {},
+      explanation: {
+        evidence: "Static client session capture.",
+        reasoning: "Computed metrics entirely client-side for GitHub Pages portability.",
+        confidence: 0.9
+      }
+    };
+  }
+
+  if (e.includes("/mentor/chat")) {
+    return {
+      "message": "Welcome! You are accessing the static demo of the AI Mentor. Please run the backend locally to use dynamic Ollama model queries.",
+      "twin_parameters_injected": {
+        "dominant_style": "project",
+        "readiness_score": 0.75,
+        "target_role": "AI Engineer",
+        "weaknesses_count": 1
+      },
+      "explanation": {
+        "evidence": "Static environment detection.",
+        "reasoning": "Serving default demo response.",
+        "confidence": 1.0
+      }
+    };
+  }
+
+  return {};
 }
