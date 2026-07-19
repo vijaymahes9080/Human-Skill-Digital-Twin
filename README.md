@@ -1,5 +1,9 @@
 # Human Skill Digital Twin 🧠
 
+<p align="center">
+  <img src="docs/images/twin_header_banner.png" alt="Human Skill Digital Twin Banner" width="100%">
+</p>
+
 A production-ready, enterprise-grade, fully open-source AI platform designed to model a person's cognitive evolution, memory intervals, learning style preferences, and decision metrics.
 
 **This is NOT a learning management system. This is NOT a note-taking application. This is NOT an AI chatbot.**
@@ -17,6 +21,10 @@ It models how a person learns, forgets, practices, and makes decisions, utilizin
 5. **Learning Simulator**: Sliders to run 12-month projections of mastery, decay, and burnout.
 6. **Explainable AI**: Injects clear, mathematical reasoning and evidence summaries for every recommendation.
 7. **Offline First**: Relational SQLite, in-memory NetworkX caching, local FAISS vectors, and local Ollama integrations.
+
+<p align="center">
+  <img src="docs/images/decision_radar_mockup.png" alt="Decision Intelligence Dashboard Mockup" width="80%">
+</p>
 
 ---
 
