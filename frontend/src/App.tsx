@@ -59,8 +59,7 @@ export default function App() {
   const [twin, setTwin] = useState<any>(null);
   const [graph, setGraph] = useState<any>(null);
   const [plan, setPlan] = useState<any>(null);
-  const [predictions, setPredictions] = useState<any>(null);
-  const [weaknesses, setWeaknesses] = useState<any[]>([]);
+
   
   // Interactive Graph selection details
   const [selectedNode, setSelectedNode] = useState<any>(null);
@@ -169,15 +168,13 @@ export default function App() {
       const planData = await apiFetch('/learning/plan');
       setPlan(planData);
 
-      const predData = await apiFetch('/predictions');
-      setPredictions(predData);
-
-      const graphData = await apiFetch('/knowledge/graph');
-      setGraph(graphData);
-
-      // Fetch weaknesses directly from DB diagnostics endpoint by default
-      const weakData = await apiFetch('/knowledge/gaps?target_concept_id=neural_networks');
-      setWeaknesses(weakData);
+      await apiFetch('/predictions');
+ 
+       const graphData = await apiFetch('/knowledge/graph');
+       setGraph(graphData);
+ 
+       // Fetch weaknesses directly from DB diagnostics endpoint by default
+       await apiFetch('/knowledge/gaps?target_concept_id=neural_networks');
 
       const decData = await apiFetch('/decisions');
       setDecisionLogs(decData);
@@ -365,7 +362,7 @@ export default function App() {
   const triggerReflection = async (type: string) => {
     setReflectionSuccess('');
     try {
-      const res = await apiFetch(`/reflections?reflection_type=${type}`, { method: 'POST' });
+      await apiFetch(`/reflections?reflection_type=${type}`, { method: 'POST' });
       setReflectionSuccess(`Successful. Generated a new ${type} reflection.`);
       loadDashboardData();
     } catch (e) {
@@ -1809,7 +1806,7 @@ function ArenaRadarChart({ metrics }: { metrics: Record<string, number> }) {
       })}
 
       {labels.map((l, i) => {
-        let textAnchor = "middle";
+        let textAnchor: "middle" | "start" | "end" = "middle";
         if (l.x > cx + 10) textAnchor = "start";
         if (l.x < cx - 10) textAnchor = "end";
         return (
