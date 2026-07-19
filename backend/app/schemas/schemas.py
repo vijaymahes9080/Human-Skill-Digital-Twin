@@ -200,3 +200,23 @@ class MentorChatResponse(BaseModel):
     message: str
     twin_parameters_injected: Dict[str, Any]
     explanation: Dict[str, Any]
+
+# --- COGNITIVE ARENA ---
+class ArenaStepSubmit(BaseModel):
+    step_id: int
+    option_selected: str
+    confidence: float
+    time_spent_seconds: float
+    evidence_collected: List[str]
+
+class ArenaScenarioSubmit(BaseModel):
+    scenario_id: str
+    steps: List[ArenaStepSubmit]
+
+class ArenaScenarioResult(BaseModel):
+    score: float
+    feedback: str
+    metrics: Dict[str, float]
+    biases_detected: Dict[str, Any]
+    explanation: Dict[str, Any]
+

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Brain, BookOpen, GraduationCap, Award, Compass, MessageSquare, 
   User, CheckCircle2, AlertTriangle, Play, RefreshCw, BarChart2, 
-  HelpCircle, Shield, LogOut, ChevronRight, Check, Activity, Save
+  HelpCircle, Shield, LogOut, ChevronRight, Check, Activity, Save,
+  Target
 } from 'lucide-react';
 
 // Custom SVG Chart helper for local-first reliability
@@ -45,7 +46,7 @@ function SimpleLineChart({ data }: { data: any[] }) {
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('dt_token'));
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'graph' | 'mentor' | 'simulator' | 'decisions' | 'reflections'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'graph' | 'mentor' | 'simulator' | 'decisions' | 'reflections' | 'arena'>('dashboard');
   
   // Auth Form State
   const [email, setEmail] = useState('');
@@ -109,6 +110,18 @@ export default function App() {
   const [reflectionLogs, setReflectionLogs] = useState<any[]>([]);
   const [reflectionSuccess, setReflectionSuccess] = useState('');
 
+  // Cognitive Arena State
+  const [arenaScenarios, setArenaScenarios] = useState<any[]>([]);
+  const [activeScenario, setActiveScenario] = useState<any | null>(null);
+  const [arenaStepIndex, setArenaStepIndex] = useState(0);
+  const [arenaEvidence, setArenaEvidence] = useState<string[]>([]);
+  const [arenaResponses, setArenaResponses] = useState<any[]>([]);
+  const [arenaStepStartTime, setArenaStepStartTime] = useState(0);
+  const [arenaConfidence, setArenaConfidence] = useState(0.8);
+  const [arenaResult, setArenaResult] = useState<any | null>(null);
+  const [arenaSubmitting, setArenaSubmitting] = useState(false);
+  const [arenaError, setArenaError] = useState('');
+
   // 1. Fetch wrapper helper
   const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     const headers = {
@@ -159,6 +172,9 @@ export default function App() {
 
       const refData = await apiFetch('/reflections');
       setReflectionLogs(refData);
+
+      const arenaData = await apiFetch('/arena/scenarios');
+      setArenaScenarios(arenaData);
     } catch (e) {
       console.error(e);
     }
@@ -345,6 +361,61 @@ export default function App() {
     }
   };
 
+  // Arena Gameplay Handlers
+  const startArenaScenario = (scenario: any) => {
+    setActiveScenario(scenario);
+    setArenaStepIndex(0);
+    setArenaEvidence([]);
+    setArenaResponses([]);
+    setArenaStepStartTime(performance.now());
+    setArenaConfidence(0.8);
+    setArenaResult(null);
+    setArenaError('');
+  };
+
+  const handleArenaClueClick = (clueId: string) => {
+    if (!arenaEvidence.includes(clueId)) {
+      setArenaEvidence(prev => [...prev, clueId]);
+    }
+  };
+
+  const handleArenaSubmitStep = async (optionId: string) => {
+    const timeSpent = (performance.now() - arenaStepStartTime) / 1000.0;
+    const stepResponse = {
+      step_id: activeScenario.steps[arenaStepIndex].step_id,
+      option_selected: optionId,
+      confidence: arenaConfidence,
+      time_spent_seconds: timeSpent,
+      evidence_collected: [...arenaEvidence]
+    };
+    const updatedResponses = [...arenaResponses, stepResponse];
+    setArenaResponses(updatedResponses);
+
+    if (arenaStepIndex + 1 < activeScenario.steps.length) {
+      setArenaStepIndex(prev => prev + 1);
+      setArenaEvidence([]);
+      setArenaStepStartTime(performance.now());
+      setArenaConfidence(0.8);
+    } else {
+      setArenaSubmitting(true);
+      try {
+        const res = await apiFetch('/arena/submit', {
+          method: 'POST',
+          body: JSON.stringify({
+            scenario_id: activeScenario.id,
+            steps: updatedResponses
+          })
+        });
+        setArenaResult(res);
+        loadDashboardData();
+      } catch (err: any) {
+        setArenaError(err.message || "Failed to submit arena scenario.");
+      } finally {
+        setArenaSubmitting(false);
+      }
+    }
+  };
+
   if (!token) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#090d16] p-4">
@@ -482,6 +553,13 @@ export default function App() {
             >
               <GraduationCap className="w-4 h-4" />
               Reflections Log
+            </button>
+            <button 
+              onClick={() => setActiveTab('arena')}
+              className={`w-full flex items-center gap-3 px-4 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === 'arena' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'text-gray-400 hover:bg-slate-900'}`}
+            >
+              <Target className="w-4 h-4" />
+              Cognitive Arena
             </button>
           </nav>
         </div>
@@ -1400,6 +1478,217 @@ export default function App() {
           </div>
         )}
 
+        {/* TAB 7: COGNITIVE ARENA */}
+        {activeTab === 'arena' && (
+          <div className="space-y-8 animate-fadeIn">
+            <div>
+              <h1 className="text-3xl font-extrabold tracking-tight">Cognitive Decision Arena</h1>
+              <p className="text-gray-400 text-sm mt-1">Stress-test your system design and engineering decision workflows against common heuristic biases.</p>
+            </div>
+
+            {!activeScenario ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {arenaScenarios.map((sc: any) => (
+                  <div key={sc.id} className="glass-panel p-6 rounded-2xl flex flex-col justify-between space-y-4 border border-slate-800 hover:border-indigo-500/50 transition-all duration-300">
+                    <div className="space-y-2">
+                      <div className="p-2 bg-indigo-500/10 text-indigo-400 w-10 h-10 rounded-xl flex items-center justify-center font-bold">
+                        <Target className="w-5 h-5" />
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-200">{sc.title}</h3>
+                      <p className="text-xs text-gray-400 leading-relaxed">{sc.description}</p>
+                    </div>
+                    <button 
+                      onClick={() => startArenaScenario(sc)}
+                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2"
+                    >
+                      <Play className="w-4 h-4" /> Enter Scenario
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                
+                {/* Active Game Window */}
+                <div className="lg:col-span-2 glass-panel p-6 rounded-2xl space-y-6 flex flex-col justify-between min-h-[450px]">
+                  
+                  {!arenaResult ? (
+                    <div className="space-y-6">
+                      {/* Step Indicator */}
+                      <div className="flex justify-between items-center pb-4 border-b border-slate-800">
+                        <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest">
+                          Step {arenaStepIndex + 1} of {activeScenario.steps.length}
+                        </span>
+                        <span className="text-xs text-gray-550 flex items-center gap-1.5 font-semibold">
+                          <Activity className="w-4 h-4 text-emerald-400" /> Outage Timer Active
+                        </span>
+                      </div>
+
+                      {/* Scenario Situation */}
+                      <div className="space-y-2">
+                        <p className="text-sm font-bold text-gray-200 leading-relaxed">
+                          {activeScenario.steps[arenaStepIndex].situation}
+                        </p>
+                      </div>
+
+                      {/* Evidence Gathering Section */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">
+                          Uncover Diagnostic Evidence (Optional)
+                        </h4>
+                        <p className="text-[10px] text-gray-550">Click to reveal details. Each clue read adds evidence points but increases time spent.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {activeScenario.steps[arenaStepIndex].clues.map((clue: any) => {
+                            const isRevealed = arenaEvidence.includes(clue.id);
+                            return (
+                              <div 
+                                key={clue.id}
+                                onClick={() => handleArenaClueClick(clue.id)}
+                                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${isRevealed ? 'bg-slate-900/80 border-indigo-500/30' : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'}`}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <span className="font-bold text-gray-300">{clue.title}</span>
+                                  {isRevealed ? (
+                                    <span className="text-[9px] text-indigo-400 font-extrabold uppercase bg-indigo-500/10 px-1.5 py-0.5 rounded">Revealed</span>
+                                  ) : (
+                                    <span className="text-[9px] text-gray-500 font-extrabold uppercase bg-slate-800 px-1.5 py-0.5 rounded">Click to inspect</span>
+                                  )}
+                                </div>
+                                {isRevealed && (
+                                  <p className="mt-2 text-[11px] text-gray-400 leading-relaxed font-medium">
+                                    {clue.content}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Choices */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-wider">
+                          Select Decisive Action
+                        </h4>
+                        <div className="grid grid-cols-1 gap-2.5">
+                          {activeScenario.steps[arenaStepIndex].options.map((opt: any) => (
+                            <button 
+                              key={opt.id}
+                              onClick={() => handleArenaSubmitStep(opt.id)}
+                              disabled={arenaSubmitting}
+                              className="w-full text-left p-3.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/40 rounded-xl text-xs text-gray-300 font-medium transition-all flex justify-between items-center group"
+                            >
+                              <span>{opt.text}</span>
+                              <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 transition-all" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Confidence Slider */}
+                      <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <label className="text-gray-400 uppercase">Rate Your Decision Confidence</label>
+                          <span className="text-indigo-400 font-bold">{Math.round(arenaConfidence * 100)}% Confidence</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="0.1" 
+                          max="1.0" 
+                          step="0.05"
+                          value={arenaConfidence}
+                          onChange={e => setArenaConfidence(parseFloat(e.target.value))}
+                          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6 text-center py-6">
+                      <div className="p-5 bg-indigo-950/40 rounded-2xl border border-indigo-850 max-w-md mx-auto">
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">DECISION QUALITY SCORE</p>
+                        <p className="text-6xl font-black text-indigo-400 mt-1">{Math.round(arenaResult.score * 100)}%</p>
+                      </div>
+
+                      <div className="text-left space-y-4">
+                        <h4 className="text-sm font-bold text-gray-300 border-b border-slate-800 pb-2">Cognitive Analysis Report</h4>
+                        <p className="text-xs text-gray-450 leading-relaxed whitespace-pre-line">
+                          {arenaResult.feedback}
+                        </p>
+                        <div className="text-[11px] text-gray-500 space-y-1">
+                          <p><span className="font-extrabold text-indigo-400">EVIDENCE:</span> {arenaResult.explanation.evidence}</p>
+                          <p><span className="font-extrabold text-emerald-400">REASONING:</span> {arenaResult.explanation.reasoning}</p>
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={() => {
+                          setActiveScenario(null);
+                          setArenaResult(null);
+                        }}
+                        className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-gray-200 font-bold rounded-xl text-xs transition-all"
+                      >
+                        Finish and Exit Scenario
+                      </button>
+                    </div>
+                  )}
+
+                  {arenaError && (
+                    <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-xl text-center">
+                      {arenaError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Dashboard Metrics Sidepanel */}
+                <div className="glass-panel p-6 rounded-2xl space-y-6 flex flex-col justify-between">
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
+                        <BarChart2 className="w-5 h-5 text-indigo-400" /> Cognitive Radar Map
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">Real-time parameters of active heuristic biases.</p>
+                    </div>
+
+                    {arenaResult ? (
+                      <ArenaRadarChart metrics={arenaResult.metrics} />
+                    ) : twin?.state?.decision_profile ? (
+                      <ArenaRadarChart metrics={twin.state.decision_profile} />
+                    ) : (
+                      <div className="text-center py-12 text-xs text-gray-500">
+                        <HelpCircle className="w-8 h-8 mx-auto mb-2 text-gray-600" />
+                        Complete a scenario to map your decision heuristics.
+                      </div>
+                    )}
+
+                    {/* Bias Warnings Alert */}
+                    {arenaResult?.biases_detected && Object.keys(arenaResult.biases_detected).length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">Heuristic Biases Flagged</h4>
+                        <div className="space-y-2">
+                          {Object.entries(arenaResult.biases_detected).map(([key, bias]: any) => (
+                            <div key={key} className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs rounded-xl flex gap-2">
+                              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                              <div>
+                                <p className="font-bold capitalize">{key.replace('_', ' ')} (Severity: {Math.round(bias.severity * 100)}%)</p>
+                                <p className="text-[10px] text-amber-400/80 mt-1">{bias.description}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-[10px] text-gray-550 bg-slate-950/40 p-3 rounded-xl border border-slate-900 leading-relaxed">
+                    <strong>Mitigation Suggestion:</strong> To reduce overconfidence bias, actively seek disconfirming data before finalizing production modifications.
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </div>
+        )}
+
       </main>
     </div>
   );
@@ -1411,4 +1700,118 @@ function roundTo(num: number, dec: number) {
 }
 function intPercent(num: number) {
   return Math.round(num * 100);
+}
+function ArenaRadarChart({ metrics }: { metrics: Record<string, number> }) {
+  const cx = 150;
+  const cy = 150;
+  const r = 100;
+  
+  const keys = [
+    { label: "Analytical", key: "analytical_thinking" },
+    { label: "Risk Appetite", key: "risk_tolerance" },
+    { label: "Impulsiveness", key: "impulsiveness" },
+    { label: "Sunk Cost", key: "sunk_cost" },
+    { label: "Confirmation Bias", key: "confirmation_bias" },
+    { label: "Overconfidence", key: "overconfidence" }
+  ];
+  
+  // Outer polygon and grid lines
+  const gridLevels = [0.25, 0.5, 0.75, 1.0];
+  const gridPolygons = gridLevels.map(level => {
+    return keys.map((_, i) => {
+      const angle = (i * Math.PI) / 3 - Math.PI / 2;
+      const x = cx + r * level * Math.cos(angle);
+      const y = cy + r * level * Math.sin(angle);
+      return `${x},${y}`;
+    }).join(' ');
+  });
+
+  // User value polygon
+  const valuePoints = keys.map((k, i) => {
+    const val = metrics[k.key] ?? 0.5;
+    const angle = (i * Math.PI) / 3 - Math.PI / 2;
+    const x = cx + r * val * Math.cos(angle);
+    const y = cy + r * val * Math.sin(angle);
+    return `${x},${y}`;
+  }).join(' ');
+
+  // Labels coordinates
+  const labels = keys.map((k, i) => {
+    const angle = (i * Math.PI) / 3 - Math.PI / 2;
+    const x = cx + r * 1.3 * Math.cos(angle);
+    const y = cy + r * 1.15 * Math.sin(angle);
+    return { label: k.label, x, y };
+  });
+
+  return (
+    <svg viewBox="0 0 300 320" className="w-full max-w-xs mx-auto bg-slate-950/60 rounded-2xl p-2 border border-slate-800/80">
+      {gridPolygons.map((points, idx) => (
+        <polygon 
+          key={idx} 
+          points={points} 
+          fill="none" 
+          stroke="#334155" 
+          strokeWidth="1" 
+          strokeDasharray={idx < 3 ? "2" : "none"} 
+        />
+      ))}
+      
+      {keys.map((_, i) => {
+        const angle = (i * Math.PI) / 3 - Math.PI / 2;
+        const x = cx + r * Math.cos(angle);
+        const y = cy + r * Math.sin(angle);
+        return (
+          <line 
+            key={i} 
+            x1={cx} 
+            y1={cy} 
+            x2={x} 
+            y2={y} 
+            stroke="#1e293b" 
+            strokeWidth="1.5" 
+          />
+        );
+      })}
+
+      <polygon 
+        points={valuePoints} 
+        fill="rgba(99, 102, 241, 0.2)" 
+        stroke="#6366f1" 
+        strokeWidth="3" 
+      />
+      
+      {keys.map((k, i) => {
+        const val = metrics[k.key] ?? 0.5;
+        const angle = (i * Math.PI) / 3 - Math.PI / 2;
+        const x = cx + r * val * Math.cos(angle);
+        const y = cy + r * val * Math.sin(angle);
+        return (
+          <circle 
+            key={i} 
+            cx={x} 
+            cy={y} 
+            r="4" 
+            className="fill-indigo-400 stroke-indigo-600 stroke-2" 
+          />
+        );
+      })}
+
+      {labels.map((l, i) => {
+        let textAnchor = "middle";
+        if (l.x > cx + 10) textAnchor = "start";
+        if (l.x < cx - 10) textAnchor = "end";
+        return (
+          <text 
+            key={i} 
+            x={l.x} 
+            y={l.y} 
+            textAnchor={textAnchor}
+            className="fill-gray-400 font-bold text-[8px] uppercase tracking-wider"
+          >
+            {l.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
 }

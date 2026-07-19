@@ -1,5 +1,6 @@
 from typing import Dict, Any
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from backend.app.models.database_models import DigitalTwin
 
 def get_default_twin_state() -> Dict[str, Any]:
@@ -91,12 +92,15 @@ def update_twin_state(db: Session, user_id: int, section: str, updates: Dict[str
         
     # Apply shallow or deep updates depending on configuration
     if isinstance(state[section], dict) and isinstance(updates, dict):
+        state[section] = dict(state[section])
         state[section].update(updates)
     else:
         state[section] = updates
         
     twin.state = state
+    flag_modified(twin, "state")
     db.add(twin)
     db.commit()
     db.refresh(twin)
     return twin
+

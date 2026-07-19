@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.core.config import settings
 from backend.app.core.database import Base, engine
-from backend.app.api import auth, core_routes, analytical_routes
+from backend.app.api import auth, core_routes, analytical_routes, arena_routes
 from backend.app.agents.coordinator import initialize_agent_coordinator
 
 # Setup logger configuration
@@ -38,6 +38,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(core_routes.router, prefix=settings.API_V1_STR)
 app.include_router(analytical_routes.router, prefix=settings.API_V1_STR)
+app.include_router(arena_routes.router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def read_root():
